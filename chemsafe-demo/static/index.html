@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ChemSafe - Plant Monitor</title>
+<style>
+  :root {
+    --bg: #0e1319; --panel: #18212e; --card: #1c2635; --line: #2a3648;
+    --text: #e8eef5; --muted: #8fa1b6;
+    --ok: #35c26e; --warn: #f5a623; --crit: #e5484d; --accent: #4cc3ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  header {
+    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+    padding: 16px 20px; border-bottom: 1px solid var(--line);
+  }
+  header h1 { margin: 0; font-size: 20px; }
+  header h1 span { color: var(--accent); }
+  header .sub { color: var(--muted); font-size: 13px; }
+  #status-pill {
+    margin-left: auto; padding: 4px 14px; border-radius: 999px;
+    font-weight: 600; font-size: 13px; background: var(--ok); color: #062012;
+  }
+  #status-pill.warning { background: var(--warn); color: #2a1c00; }
+  #status-pill.critical { background: var(--crit); color: #fff; }
+  main { padding: 16px 20px 40px; max-width: 1100px; margin: 0 auto; }
+
+  /* alarm banner */
+  #alarm-banner {
+    display: none; border-radius: 10px; padding: 12px 16px; margin-bottom: 16px;
+    font-weight: 600; font-size: 14px; line-height: 1.5;
+  }
+  #alarm-banner.critical {
+    display: block; background: var(--crit); color: #fff;
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  #alarm-banner.warning { display: block; background: var(--warn); color: #2a1c00; }
+  @keyframes pulse { 50% { filter: brightness(1.25); } }
+
+  /* sensor cards: grid collapses to a single stack on narrow screens */
+  .cards {
+    display: grid; gap: 12px; margin-bottom: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  }
+  .card {
+    background: var(--card); border: 2px solid var(--line); border-radius: 12px;
+    padding: 14px 16px;
+  }
+  .card .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+  .card .value { font-size: 32px; font-weight: 700; margin-top: 6px; }
+  .card .unit { font-size: 14px; color: var(--muted); font-weight: 400; margin-left: 4px; }
+  .card .state { font-size: 12px; margin-top: 6px; color: var(--ok); font-weight: 600; }
+  .card.warn { border-color: var(--warn); }
+  .card.warn .value, .card.warn .state { color: var(--warn); }
+  .card.crit { border-color: var(--crit); animation: pulse 1.2s ease-in-out infinite; }
+  .card.crit .value, .card.crit .state { color: var(--crit); }
+
+  /* equipment row */
+  .equipment {
+    display: grid; gap: 12px; margin-bottom: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  }
+  .equip {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px 14px; text-align: center;
+  }
+  .equip .name { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
+  .equip .val { font-size: 18px; font-weight: 700; margin-top: 6px; }
+  .equip .val.running { color: var(--ok); }
+  .equip .val.tripped, .equip .val.open { color: var(--crit); }
+  .equip .val.closed { color: var(--muted); }
+  .equip .val.pct { color: var(--accent); }
+
+  /* panels */
+  .panel {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 16px; margin-bottom: 16px; overflow-x: auto; /* table scrolls, never clips */
+  }
+  .panel h2 { margin: 0 0 10px; font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+  #trend { width: 100%; height: 240px; display: block; }
+  table { border-collapse: collapse; width: 100%; min-width: 520px; font-size: 13px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; }
+  td.lvl-CRITICAL { color: var(--crit); font-weight: 700; }
+  td.lvl-WARNING { color: var(--warn); font-weight: 700; }
+  td.lvl-CLEARED, td.lvl-INFO { color: var(--muted); }
+  .empty { color: var(--muted); font-size: 13px; }
+
+  /* explicit small-screen stack (~390px phones) */
+  @media (max-width: 480px) {
+    .cards, .equipment { grid-template-columns: 1fr; }
+    header .sub { width: 100%; }
+    .card .value { font-size: 28px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Chem<span>Safe</span></h1>
+  <div class="sub">Smart Chemical Plant Monitoring - Reactor R-101</div>
+  <div id="status-pill">CONNECTING</div>
+</header>
+<main>
+  <div id="alarm-banner"></div>
+
+  <section class="panel" aria-label="Demo controls">
+    <h2>Demo mode</h2>
+    <div style="display:flex;flex-wrap:wrap;gap:10px">
+      <button type="button" onclick="demoAction('cooling_failure')" style="background:var(--crit);color:white;border:0;border-radius:8px;padding:12px 16px;font:inherit;cursor:pointer">Trigger emergency</button>
+      <button type="button" onclick="demoAction('acid_surge')" style="background:var(--warn);color:#2a1c00;border:0;border-radius:8px;padding:12px 16px;font:inherit;cursor:pointer">Acid surge</button>
+      <button type="button" onclick="demoAction('reset')" style="background:var(--line);color:var(--text);border:1px solid var(--muted);border-radius:8px;padding:12px 16px;font:inherit;cursor:pointer">Reset plant</button>
+    </div>
+    <p id="demo-message" role="status" style="color:var(--muted);font-size:13px;line-height:1.5;margin:12px 0 0">Simulation only. Trigger emergency starts a repeatable cooling-failure demo at 80 C. Reset returns to normal at 80 C.</p>
+  </section>
+  <script>
+  async function demoAction(kind) {
+    const buttons = document.querySelectorAll('[aria-label="Demo controls"] button');
+    buttons.forEach(b => b.disabled = true);
+    try {
+      const response = await fetch(kind === 'reset' ? '/api/reset' : '/api/disturbance', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({kind: kind})
+      });
+      if (!response.ok) throw new Error('Request failed');
+      render(await response.json());
+      document.getElementById('demo-message').textContent = kind === 'reset'
+        ? 'Plant reset to normal at 80 C. Trend, alarm history and run statistics restarted; existing CSV logs are kept.'
+        : kind === 'acid_surge'
+        ? 'Acid surge: pH dropped below 6.0. Watch the critical alarm and automatic caustic dosing.'
+        : 'Cooling failure: starting at 80 C, expect WARNING in 10-15 s and CRITICAL near 25 s. The cooling valve opens but failed cooling cannot remove heat. Failure lasts 120 s.';
+    } catch (error) {
+      document.getElementById('demo-message').textContent = 'Could not reach the server. Check that app.py is running, then try again.';
+    } finally {
+      buttons.forEach(b => b.disabled = false);
+    }
+  }
+  </script>
+
+
+  <section class="cards">
+    <div class="card" id="card-temperature">
+      <div class="label">Reactor Temperature</div>
+      <div class="value"><span id="v-temperature">-</span><span class="unit">°C</span></div>
+      <div class="state" id="s-temperature">-</div>
+    </div>
+    <div class="card" id="card-pressure">
+      <div class="label">Reactor Pressure</div>
+      <div class="value"><span id="v-pressure">-</span><span class="unit">bar</span></div>
+      <div class="state" id="s-pressure">-</div>
+    </div>
+    <div class="card" id="card-ph">
+      <div class="label">Reactor pH</div>
+      <div class="value"><span id="v-ph">-</span><span class="unit">pH</span></div>
+      <div class="state" id="s-ph">-</div>
+    </div>
+    <div class="card" id="card-flow">
+      <div class="label">Feed Flow</div>
+      <div class="value"><span id="v-flow">-</span><span class="unit">L/min</span></div>
+      <div class="state" id="s-flow">-</div>
+    </div>
+  </section>
+
+  <section class="equipment">
+    <div class="equip"><div class="name">Feed Pump</div><div class="val" id="e-pump">-</div></div>
+    <div class="equip"><div class="name">Cooling Valve</div><div class="val pct" id="e-cooling">-</div></div>
+    <div class="equip"><div class="name">Caustic Dosing</div><div class="val pct" id="e-dose">-</div></div>
+    <div class="equip"><div class="name">Relief Valve</div><div class="val" id="e-relief">-</div></div>
+  </section>
+
+  <section class="panel">
+    <h2>Temperature Trend (last 5 min)</h2>
+    <canvas id="trend"></canvas>
+  </section>
+
+  <section class="panel">
+    <h2>Alarm History</h2>
+    <table>
+      <thead><tr><th>Time</th><th>Run (s)</th><th>Level</th><th>Event</th></tr></thead>
+      <tbody id="alarm-rows"><tr><td colspan="4" class="empty">No alarms yet.</td></tr></tbody>
+    </table>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+
+function setCard(name, value, limits, fmt) {
+  $("v-" + name).textContent = fmt(value);
+  const card = $("card-" + name), state = $("s-" + name);
+  let cls = "", txt = "NORMAL";
+  if (name === "temperature" || name === "pressure") {
+    if (value >= limits.critical) { cls = "crit"; txt = "CRITICAL"; }
+    else if (value >= limits.warning) { cls = "warn"; txt = "WARNING"; }
+  } else if (name === "ph") {
+    if (value <= limits.crit_low || value >= limits.crit_high) { cls = "crit"; txt = "CRITICAL"; }
+    else if (value <= limits.warn_low || value >= limits.warn_high) { cls = "warn"; txt = "WARNING"; }
+  } else if (name === "flow") {
+    if (value >= limits.warn_high) { cls = "warn"; txt = "WARNING"; }
+  }
+  card.className = "card" + (cls ? " " + cls : "");
+  state.textContent = txt;
+  state.style.color = cls === "crit" ? "var(--crit)" : cls === "warn" ? "var(--warn)" : "var(--ok)";
+}
+
+function drawTrend(state) {
+  const canvas = $("trend"), ctx = canvas.getContext("2d");
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  canvas.width = w * dpr; canvas.height = h * dpr; ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+
+  const data = state.history.temperature;
+  if (data.length < 2) return;
+  const Y_MIN = 60, Y_MAX = 110, padL = 34, padR = 10, padT = 10, padB = 20;
+  const x = i => padL + (w - padL - padR) * i / (data.length - 1);
+  const y = v => padT + (h - padT - padB) * (1 - (v - Y_MIN) / (Y_MAX - Y_MIN));
+
+  // gridlines + y labels
+  ctx.font = "10px sans-serif"; ctx.fillStyle = "#8fa1b6"; ctx.strokeStyle = "#2a3648";
+  ctx.lineWidth = 1;
+  [60, 80, 100].forEach(v => {
+    ctx.beginPath(); ctx.moveTo(padL, y(v)); ctx.lineTo(w - padR, y(v)); ctx.stroke();
+    ctx.fillText(v + "°", 6, y(v) + 3);
+  });
+
+  // WARNING line: dashed orange at 85 C
+  ctx.setLineDash([6, 5]); ctx.lineWidth = 1.5; ctx.strokeStyle = "#f5a623";
+  ctx.beginPath(); ctx.moveTo(padL, y(85)); ctx.lineTo(w - padR, y(85)); ctx.stroke();
+  // CRITICAL line: red at 95 C
+  ctx.setLineDash([2, 3]); ctx.strokeStyle = "#e5484d";
+  ctx.beginPath(); ctx.moveTo(padL, y(95)); ctx.lineTo(w - padR, y(95)); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = "#f5a623"; ctx.fillText("85° WARNING", padL + 6, y(85) - 4);
+  ctx.fillStyle = "#e5484d"; ctx.fillText("95° CRITICAL", padL + 6, y(95) - 4);
+
+  // temperature trace
+  ctx.strokeStyle = "#4cc3ff"; ctx.lineWidth = 2; ctx.beginPath();
+  data.forEach((v, i) => { const px = x(i), py = y(v); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); });
+  ctx.stroke();
+  // latest point
+  ctx.fillStyle = "#4cc3ff";
+  ctx.beginPath(); ctx.arc(x(data.length - 1), y(data[data.length - 1]), 3.5, 0, 7); ctx.fill();
+}
+
+function render(state) {
+  if (!state || !state.sensors) return;
+  const s = state.sensors, lim = state.limits, eq = state.equipment;
+
+  setCard("temperature", s.temperature, lim.temperature, v => v.toFixed(1));
+  setCard("pressure", s.pressure, lim.pressure, v => v.toFixed(2));
+  setCard("ph", s.ph, lim.ph, v => v.toFixed(2));
+  setCard("flow", s.flow, lim.flow, v => v.toFixed(1));
+
+  const pump = $("e-pump");
+  pump.textContent = eq.feed_pump_on ? "RUNNING" : "TRIPPED";
+  pump.className = "val " + (eq.feed_pump_on ? "running" : "tripped");
+  $("e-cooling").textContent = eq.cooling_valve_pct + "%";
+  $("e-dose").textContent = eq.caustic_dose_pct + "%";
+  const relief = $("e-relief");
+  relief.textContent = eq.relief_valve_open ? "OPEN" : "CLOSED";
+  relief.className = "val " + (eq.relief_valve_open ? "open" : "closed");
+
+  const pill = $("status-pill");
+  pill.textContent = state.status;
+  pill.className = state.status === "CRITICAL" ? "critical" : state.status === "WARNING" ? "warning" : "";
+
+  const banner = $("alarm-banner");
+  const active = state.alarms.active;
+  if (active.length) {
+    const crit = active.some(a => a.level === "CRITICAL");
+    banner.className = crit ? "critical" : "warning";
+    banner.textContent = (crit ? "CRITICAL ALARM: " : "WARNING: ")
+      + active.map(a => a.message).join("  |  ");
+  } else {
+    banner.className = ""; banner.textContent = "";
+  }
+
+  drawTrend(state);
+
+  const rows = state.events.map(e =>
+    `<tr><td>${e.wall_time}</td><td>${e.elapsed_s}</td>` +
+    `<td class="lvl-${e.level}">${e.level}</td><td>${e.message}</td></tr>`).join("");
+  $("alarm-rows").innerHTML = rows || '<tr><td colspan="4" class="empty">No alarms yet.</td></tr>';
+}
+
+async function poll() {
+  try {
+    const res = await fetch("/api/state");
+    render(await res.json());
+  } catch (e) { /* server restarting - try again next tick */ }
+}
+poll();
+setInterval(poll, 1000);
+window.addEventListener("resize", () => poll());
+</script>
+</body>
+</html>
